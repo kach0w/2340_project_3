@@ -1,0 +1,38 @@
+{% extends 'base.html' %}
+{% block title %}Chat{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2>Chat</h2>
+  <form method="POST" action="{% url 'chat.clear' %}">{% csrf_token %}
+    <button class="btn btn-sm btn-outline-secondary">Clear chat</button>
+  </form>
+</div>
+
+<div class="chat-box mb-3">
+  {% for turn in history %}
+    <div class="p-3 rounded msg-user mb-2"><strong>You:</strong> {{ turn.question }}</div>
+    <div class="p-3 rounded msg-bot mb-3">
+      <strong>DisasterBot</strong> <span class="badge bg-secondary">{{ turn.intent }}</span>
+      <p class="mb-2 mt-1" style="white-space: pre-wrap;">{{ turn.answer }}</p>
+      {% if turn.sources %}
+        <div class="source-list text-muted">
+          Sources:
+          <ul class="mb-0">
+            {% for s in turn.sources %}
+              <li>{% if s.url %}<a href="{{ s.url }}" target="_blank">{{ s.title }}</a>{% else %}{{ s.title }}{% endif %}</li>
+            {% endfor %}
+          </ul>
+        </div>
+      {% endif %}
+    </div>
+  {% empty %}
+    <p class="text-muted">Ask a question to get started.</p>
+  {% endfor %}
+</div>
+
+<form method="POST" class="d-flex gap-2">
+  {% csrf_token %}
+  <input class="form-control" name="question" placeholder="Ask about disaster preparedness, response, recovery..." autofocus required>
+  <button class="btn btn-primary">Send</button>
+</form>
+{% endblock %}

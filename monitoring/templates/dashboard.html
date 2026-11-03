@@ -1,0 +1,35 @@
+{% extends 'base.html' %}
+{% block title %}Monitoring{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2>System Performance</h2>
+  <a class="btn btn-outline-secondary" href="{% url 'monitoring.logs' %}">View usage logs</a>
+</div>
+
+<div class="row mb-4">
+  <div class="col-md-3"><div class="card"><div class="card-body">
+    <div class="text-muted">Total queries</div><h3>{{ stats.total }}</h3>
+  </div></div></div>
+  <div class="col-md-3"><div class="card"><div class="card-body">
+    <div class="text-muted">Failures</div><h3>{{ stats.failures }}</h3>
+  </div></div></div>
+  <div class="col-md-3"><div class="card"><div class="card-body">
+    <div class="text-muted">Avg latency</div><h3>{{ stats.avg_latency|default:0|floatformat:0 }} ms</h3>
+  </div></div></div>
+  <div class="col-md-3"><div class="card"><div class="card-body">
+    <div class="text-muted">Max latency</div><h3>{{ stats.max_latency|default:0 }} ms</h3>
+  </div></div></div>
+</div>
+
+<h4>Recent failures</h4>
+<table class="table table-sm">
+  <thead><tr><th>Time</th><th>Question</th><th>Error</th></tr></thead>
+  <tbody>
+  {% for log in recent_failures %}
+    <tr><td>{{ log.created_at|date:"Y-m-d H:i:s" }}</td><td>{{ log.question|truncatechars:80 }}</td><td>{{ log.error_message|truncatechars:120 }}</td></tr>
+  {% empty %}
+    <tr><td colspan="3">No failures 🎉</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
