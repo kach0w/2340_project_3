@@ -1,0 +1,16 @@
+.chat-box {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.msg-user {
+  background: #e7f1ff;
+}
+
+.msg-bot {
+  background: #f8f9fa;
+}
+
+.source-list {
+  font-size: 0.85rem;
+}

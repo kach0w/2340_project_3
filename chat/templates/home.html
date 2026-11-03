@@ -1,0 +1,10 @@
+{% extends 'base.html' %}
+{% block title %}DisasterBot{% endblock %}
+{% block content %}
+<div class="p-5 mb-4 bg-light rounded-3">
+  <h1 class="display-5 fw-bold">DisasterBot</h1>
+  <!-- TODO: replace with your End User persona + problem statement from Midterm Part B -->
+  <p class="fs-5">Ask questions about disaster preparedness and response, answered from a curated, cited knowledge base.</p>
+  <a class="btn btn-primary btn-lg" href="{% url 'chat' %}">Start chatting</a>
+</div>
+{% endblock %}
