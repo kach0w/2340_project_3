@@ -6,7 +6,9 @@ Ingestion methods:
   - ingest_text: pasted text
   - TODO: ingest_api (e.g. FEMA / ReliefWeb / NWS APIs)
 """
+from html import unescape
 import re
+import unicodedata
 from html.parser import HTMLParser
 from urllib.request import Request, urlopen
 
@@ -18,24 +20,118 @@ from .models import Chunk, Document
 
 # ---------- cleaning ----------
 
+# Lines that are web/page boilerplate rather than content (matched on the whole line).
+BOILERPLATE_PATTERNS = [
+    r'skip to (main )?content',
+    r'(accept|reject|manage)( all)?( cookies?| preferences)?',
+    r'we use cookies.*',
+    r'this (site|website) uses cookies.*',
+    r'(subscribe|sign up|log ?in|sign ?in|register)( now| today| for .*)?',
+    r'(share|tweet|print|email|follow us)( this)?( page| article)?( on .*)?',
+    r'(click|read|learn) more',
+    r'(privacy policy|terms( of (use|service))?|cookie policy|all rights reserved.*|copyright .*)',
+    r'advertisement',
+    r'back to top',
+    r'(home|menu|search)',
+]
+_BOILERPLATE = re.compile(r'^(?:' + '|'.join(BOILERPLATE_PATTERNS) + r')[\s.:!|>\u00bb-]*$', re.I)
+
+_CONTROL_CHARS = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\u200b-\u200d\u2060\ufeff]')
+_SENTENCE_END = re.compile(r'(?<=[.!?])\s+(?=[A-Z0-9"\'(\[])')
+MIN_CHUNK_CHARS = 30
+
+
 def clean_text(text):
-    """Normalize whitespace and strip junk before chunking."""
-    text = text.replace('\r\n', '\n')
+    """Normalize and strip junk before chunking (story 7).
+
+    - unicode normalization, control / zero-width characters removed
+    - HTML entities decoded, leftover tags removed
+    - boilerplate lines (cookie banners, nav, share buttons, ...) dropped
+    - repeated lines / paragraphs removed (case-insensitive)
+    - hyphenated line breaks re-joined, whitespace collapsed
+    """
+    text = unicodedata.normalize('NFKC', unescape(text or ''))
+    text = text.replace('\r\n', '\n').replace('\r', '\n')
+    text = _CONTROL_CHARS.sub('', text)
+    text = re.sub(r'<[^>]+>', ' ', text)            # stray HTML tags
+    text = re.sub(r'(\w)-\n(\w)', r'\1\2', text)     # "evacu-\nation" -> "evacuation"
     text = re.sub(r'[ \t]+', ' ', text)
+
+    seen, kept = set(), []
+    for raw_line in text.split('\n'):
+        line = raw_line.strip()
+        if not line:
+            kept.append('')                          # keep paragraph breaks
+            continue
+        if _BOILERPLATE.match(line):
+            continue
+        key = re.sub(r'\W+', ' ', line.lower()).strip()
+        if len(key) > 20:                            # only dedupe substantial lines
+            if key in seen:
+                continue
+            seen.add(key)
+        kept.append(line)
+
+    text = '\n'.join(kept)
     text = re.sub(r'\n{3,}', '\n\n', text)
-    # TODO: strip boilerplate (nav/footer text, cookie banners), dedupe, etc.
     return text.strip()
 
 
+def _split_sentences(paragraph):
+    return [s.strip() for s in _SENTENCE_END.split(paragraph) if s.strip()]
+
+
+def _hard_split(piece, size):
+    """Last resort for a single 'sentence' longer than size: split on spaces."""
+    words, out, cur = piece.split(' '), [], ''
+    for w in words:
+        if cur and len(cur) + 1 + len(w) > size:
+            out.append(cur)
+            cur = w
+        else:
+            cur = f'{cur} {w}'.strip()
+    if cur:
+        out.append(cur)
+    return out
+
+
 def chunk_text(text, size=None, overlap=None):
+    """Split text into ~size-character chunks on sentence boundaries.
+
+    Never cuts mid-word; consecutive chunks share up to `overlap` characters
+    of trailing sentences so context isn't lost at the boundary. Tiny
+    fragments are dropped.
+    """
     size = size or settings.RAG_CHUNK_SIZE
-    overlap = overlap or settings.RAG_CHUNK_OVERLAP
-    chunks = []
-    start = 0
-    while start < len(text):
-        chunks.append(text[start:start + size])
-        start += size - overlap
-    return chunks
+    overlap = settings.RAG_CHUNK_OVERLAP if overlap is None else overlap
+
+    units = []
+    for para in re.split(r'\n\s*\n', text):
+        para = ' '.join(para.split())
+        for sentence in _split_sentences(para):
+            units.extend([sentence] if len(sentence) <= size else _hard_split(sentence, size))
+
+    chunks, current = [], []
+    length = 0
+    for unit in units:
+        added = len(unit) + (1 if current else 0)
+        if current and length + added > size:
+            chunks.append(' '.join(current))
+            # carry trailing sentences forward as overlap
+            carry, carried = [], 0
+            for prev in reversed(current):
+                if carried + len(prev) + 1 > overlap:
+                    break
+                carry.insert(0, prev)
+                carried += len(prev) + 1
+            current, length = carry, sum(len(u) + 1 for u in carry) - (1 if carry else 0)
+            added = len(unit) + (1 if current else 0)
+        current.append(unit)
+        length += added
+    if current:
+        chunks.append(' '.join(current))
+
+    return [c for c in chunks if len(c) >= MIN_CHUNK_CHARS or len(chunks) == 1]
 
 
 @transaction.atomic
@@ -69,7 +165,7 @@ def ingest_file(title, uploaded_file):
 
 
 class _TextExtractor(HTMLParser):
-    SKIP = {'script', 'style', 'nav', 'footer', 'header'}
+    SKIP = {'script', 'style', 'noscript', 'svg', 'nav', 'footer', 'header', 'aside', 'form', 'button'}
 
     def __init__(self):
         super().__init__()
