@@ -13,6 +13,8 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -22,6 +24,21 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = "django-insecure-yj7r9!w591v3=uk!17-!+!^+%twdu5zf#oa9=kuu2-4jfs#l)9"
+
+# Google Gemini API stuff:
+# Load environment variables from the .env file
+load_dotenv(BASE_DIR / '.env')
+
+# Access the key
+GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
+
+# Comma-separated, tried in order. If one is overloaded (503) or out of quota
+# (429), the next is used.
+GEMINI_MODELS = [
+    m.strip()
+    for m in os.getenv('GEMINI_MODELS', 'gemini-3.8-flash').split(',')
+    if m.strip()
+]
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -92,9 +109,9 @@ AUTH_PASSWORD_VALIDATORS = [
     {
         "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
     },
-    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",},
-    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",},
-    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",},
+    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
+    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
+    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
 
