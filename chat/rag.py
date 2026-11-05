@@ -69,6 +69,52 @@ def generate(system_prompt, prompt):
       last_error = e
   raise last_error
 
+_CITATION = re.compile(r'\[([\d,\s]+)\]')
+EXCERPT_CHARS = 220
+
+
+def _cited_numbers(answer):
+  """Numbers the LLM cited in its answer, e.g. [2] or [1, 3] -> {1, 2, 3}."""
+  cited = set()
+  for group in _CITATION.findall(answer or ''):
+    cited.update(int(n) for n in re.findall(r'\d+', group))
+  return cited
+
+
+def _excerpt(text, limit=EXCERPT_CHARS):
+  text = ' '.join(text.split())
+  if len(text) <= limit:
+    return text
+  return text[:limit].rsplit(' ', 1)[0] + '\u2026'
+
+
+def build_sources(chunks, answer=''):
+  """Numbered passages, in the same order as the [n] labels in the prompt (story 4)."""
+  cited = _cited_numbers(answer)
+  return [
+      {
+          'number': i,
+          'document_id': c.document_id,
+          'title': c.document.title,
+          'url': c.document.source_url,
+          'excerpt': _excerpt(c.content),
+          'cited': i in cited,
+      }
+      for i, c in enumerate(chunks, start=1)
+  ]
+
+
+def group_sources(passages):
+  """Group passages under their document, in order of first appearance."""
+  groups = {}
+  for p in passages:
+    group = groups.setdefault(
+        p['document_id'],
+        {'id': p['document_id'], 'title': p['title'], 'url': p['url'],
+         'passages': []},
+    )
+    group['passages'].append(p)
+  return list(groups.values())
 
 def answer_question(question, user=None):
   start = time.perf_counter()
@@ -97,11 +143,15 @@ def answer_question(question, user=None):
   documents = list({c.document for c in chunks})
   log.sources.set(documents)
 
+  # Don't show sources next to an error message.
+  passages = build_sources(chunks, answer) if log.success else []
+
   return {
       'answer': answer,
       'intent': intent,
       'chunks': chunks,
-      'sources': documents,
+      'sources': group_sources(passages),
+      'has_citations': any(p['cited'] for p in passages),
       'latency_ms': log.latency_ms,
       'success': log.success,
   }

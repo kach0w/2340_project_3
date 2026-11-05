@@ -25,9 +25,8 @@ def chat(request):
                 'question': question,
                 'answer': result['answer'],
                 'intent': result['intent'],
-                'sources': [
-                    {'id': d.id, 'title': d.title, 'url': d.source_url} for d in result['sources']
-                ],
+                'sources': result['sources'],
+                'has_citations': result['has_citations'],
             })
             request.session[HISTORY_KEY] = history[-MAX_HISTORY:]
         return redirect('chat')

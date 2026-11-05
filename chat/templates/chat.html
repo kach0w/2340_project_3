@@ -16,12 +16,24 @@
       <p class="mb-2 mt-1" style="white-space: pre-wrap;">{{ turn.answer }}</p>
       {% if turn.sources %}
         <div class="source-list text-muted">
-          Sources:
-          <ul class="mb-0">
-            {% for s in turn.sources %}
-              <li>{% if s.url %}<a href="{{ s.url }}" target="_blank">{{ s.title }}</a>{% else %}{{ s.title }}{% endif %}</li>
-            {% endfor %}
-          </ul>
+          <strong>Sources</strong>
+          {% if turn.has_citations %}<small>(passages cited in the answer are marked)</small>{% endif %}
+          {% for s in turn.sources %}
+            <div class="mt-2">
+              <div>
+                {% if s.url %}<a href="{{ s.url }}" target="_blank" rel="noopener noreferrer">{{ s.title }}</a>{% else %}{{ s.title }}{% endif %}
+              </div>
+              {% if s.passages %}
+                {% for p in s.passages %}
+                  <div class="small ms-3">
+                    <span class="badge {% if p.cited %}bg-primary{% else %}bg-secondary{% endif %}">[{{ p.number }}]</span>
+                    {% if p.cited %}<span class="badge bg-success">cited</span>{% endif %}
+                    &ldquo;{{ p.excerpt }}&rdquo;
+                  </div>
+                {% endfor %}
+              {% endif %}
+            </div>
+          {% endfor %}
         </div>
       {% endif %}
     </div>
