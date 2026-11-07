@@ -8,7 +8,7 @@
   </form>
 </div>
 
-<div class="chat-box mb-3">
+<div class="chat-box mb-3" id="chat-box">
   {% for turn in history %}
     <div class="p-3 rounded msg-user mb-2"><strong>You:</strong> {{ turn.question }}</div>
     <div class="p-3 rounded msg-bot mb-3">
@@ -30,9 +30,23 @@
   {% endfor %}
 </div>
 
-<form method="POST" class="d-flex gap-2">
+<form method="POST" class="d-flex gap-2 chat-input" id="chat-form">
   {% csrf_token %}
   <input class="form-control" name="question" placeholder="Ask about disaster preparedness, response, recovery..." autofocus required>
   <button class="btn btn-primary">Send</button>
 </form>
+
+<script>
+  // Jump to the newest message instead of leaving it hidden below older ones.
+  const toBottom = () => window.scrollTo(0, document.body.scrollHeight);
+  toBottom();
+  window.addEventListener('load', toBottom);  // again once CSS/fonts have loaded
+
+  // Show that we're waiting on the answer (Gemini can take a few seconds).
+  document.getElementById('chat-form').addEventListener('submit', (e) => {
+    const btn = e.target.querySelector('button');
+    btn.disabled = true;
+    btn.textContent = 'Thinking...';
+  });
+</script>
 {% endblock %}
