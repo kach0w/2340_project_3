@@ -14,3 +14,9 @@
 .source-list {
   font-size: 0.85rem;
 }
+
+/* Keep Django-rendered form fields inside their cards. */
+.card textarea,
+form textarea {
+  width: 100%;
+}

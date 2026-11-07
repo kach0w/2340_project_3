@@ -5,6 +5,8 @@ from . import views
 urlpatterns = [
     path('', views.documents, name='knowledge.documents'),
     path('<int:document_id>/', views.document_detail, name='knowledge.document_detail'),
+    path('<int:document_id>/edit/', views.edit_document, name='knowledge.edit'),
+    path('<int:document_id>/toggle/', views.toggle_document, name='knowledge.toggle'),
     path('<int:document_id>/delete/', views.delete_document, name='knowledge.delete'),
     path('ingest/<str:method>/', views.ingest, name='knowledge.ingest'),
     path('clear/', views.clear_all, name='knowledge.clear'),

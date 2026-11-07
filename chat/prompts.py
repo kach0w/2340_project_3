@@ -13,7 +13,9 @@ INTENT_CREATIVE = 'creative'
 # TODO: tune these for your disaster domain / persona
 INTENT_PATTERNS = [
     (INTENT_PROCEDURAL, r'\b(how (do|can|should) i|steps?|what should i do|prepare|checklist)\b'),
-    (INTENT_EXPLANATION, r'\b(why|explain|how does|what causes|difference between)\b'),
+    # Checked after procedural, so "how do I ..." stays procedural while
+    # "how do tornadoes form?" is an explanation.
+    (INTENT_EXPLANATION, r'\b(why|explain|how (does|do|did|is|are|can)|what causes|difference between)\b'),
     (INTENT_CREATIVE, r'\b(write|draft|create|generate|compose|plan for)\b'),
 ]
 

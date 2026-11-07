@@ -177,3 +177,54 @@ class CommandTests(TestCase):
         out = io.StringIO()
         call_command('run_eval', stdout=out)
         self.assertIn('1/1 passed', out.getvalue())
+
+
+class PerformanceDashboardTests(TestCase):
+    """Story 10: latency/failures against a responsiveness target."""
+
+    def setUp(self):
+        self.client.force_login(User.objects.create_user('staff2', password='pw', is_staff=True))
+
+    def log(self, ms, ok=True):
+        from .models import QueryLog
+        return QueryLog.objects.create(question='q', latency_ms=ms, success=ok)
+
+    def test_percentile(self):
+        from .views import percentile
+        self.assertIsNone(percentile([], 95))
+        self.assertEqual(percentile(list(range(1, 101)), 95), 95)
+        self.assertEqual(percentile([7], 95), 7)
+
+    @override_settings(LATENCY_TARGET_MS=1000, LATENCY_GOAL_PERCENT=95)
+    def test_stats_count_failures_against_target(self):
+        from .models import QueryLog
+        from .views import performance_stats
+        for ms in (100, 200, 300):
+            self.log(ms)
+        self.log(5000)            # slow
+        self.log(50, ok=False)    # failed
+        s = performance_stats(QueryLog.objects.all())
+        self.assertEqual(s['within_target'], 3)
+        self.assertEqual(s['within_target_percent'], 60)
+        self.assertFalse(s['meets_goal'])
+        self.assertEqual(s['failures'], 1)
+
+    @override_settings(LATENCY_TARGET_MS=1000)
+    def test_dashboard_shows_target_and_slow_queries(self):
+        self.log(200)
+        self.log(4321)
+        html = self.client.get(reverse('monitoring.dashboard')).content.decode()
+        self.assertIn('Responsiveness target', html)
+        self.assertIn('1000 ms', html)
+        self.assertIn('4321 ms', html)
+        self.assertIn('Below target', html)
+
+    def test_dashboard_with_no_queries(self):
+        self.assertContains(self.client.get(reverse('monitoring.dashboard')), 'No queries yet')
+
+    @override_settings(LATENCY_TARGET_MS=1000)
+    def test_logs_flag_slow_queries(self):
+        self.log(4321)
+        html = self.client.get(reverse('monitoring.logs')).content.decode()
+        self.assertIn('text-danger', html)
+        self.assertIn('1 queries total', html)

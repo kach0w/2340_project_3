@@ -6,20 +6,53 @@
   <a class="btn btn-outline-secondary" href="{% url 'monitoring.logs' %}">View usage logs</a>
 </div>
 
-<div class="row mb-4">
-  <div class="col-md-3"><div class="card"><div class="card-body">
-    <div class="text-muted">Total queries</div><h3>{{ stats.total }}</h3>
+{% with s=stats %}
+<div class="alert {% if s.within_target_percent is None %}alert-secondary{% elif s.meets_goal %}alert-success{% else %}alert-warning{% endif %}">
+  <strong>Responsiveness target:</strong> {{ s.goal_percent }}% of answers within {{ s.target_ms }} ms.
+  {% if s.within_target_percent is None %}
+    No queries yet.
+  {% elif s.meets_goal %}
+    Meeting target: {{ s.within_target_percent|floatformat:1 }}% of requests were on time.
+  {% else %}
+    Below target: only {{ s.within_target_percent|floatformat:1 }}% of requests were on time.
+  {% endif %}
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3"><div class="card h-100"><div class="card-body">
+    <div class="text-muted small">Within target</div>
+    <h3>{% if s.within_target_percent is None %}–{% else %}{{ s.within_target_percent|floatformat:1 }}%{% endif %}</h3>
+    <div class="small text-muted">{{ s.within_target }} of {{ s.total }} queries</div>
   </div></div></div>
-  <div class="col-md-3"><div class="card"><div class="card-body">
-    <div class="text-muted">Failures</div><h3>{{ stats.failures }}</h3>
+  <div class="col-6 col-md-3"><div class="card h-100"><div class="card-body">
+    <div class="text-muted small">p95 latency</div>
+    <h3>{% if s.p95_latency is None %}–{% else %}{{ s.p95_latency }} ms{% endif %}</h3>
+    <div class="small text-muted">avg {{ s.avg_latency|default:0|floatformat:0 }} ms · max {{ s.max_latency|default:0 }} ms</div>
   </div></div></div>
-  <div class="col-md-3"><div class="card"><div class="card-body">
-    <div class="text-muted">Avg latency</div><h3>{{ stats.avg_latency|default:0|floatformat:0 }} ms</h3>
+  <div class="col-6 col-md-3"><div class="card h-100"><div class="card-body">
+    <div class="text-muted small">Failures</div>
+    <h3>{{ s.failures }}</h3>
+    <div class="small text-muted">{{ s.failure_rate|floatformat:1 }}% of queries</div>
   </div></div></div>
-  <div class="col-md-3"><div class="card"><div class="card-body">
-    <div class="text-muted">Max latency</div><h3>{{ stats.max_latency|default:0 }} ms</h3>
+  <div class="col-6 col-md-3"><div class="card h-100"><div class="card-body">
+    <div class="text-muted small">Total queries</div>
+    <h3>{{ s.total }}</h3>
+    <div class="small text-muted">{{ stats_24h.total }} in the last 24 h ({% if stats_24h.within_target_percent is None %}–{% else %}{{ stats_24h.within_target_percent|floatformat:0 }}%{% endif %} on time)</div>
   </div></div></div>
 </div>
+{% endwith %}
+
+<h4>Slowest queries over target</h4>
+<table class="table table-sm mb-4">
+  <thead><tr><th>Time</th><th>Question</th><th>Latency</th></tr></thead>
+  <tbody>
+  {% for log in slow_queries %}
+    <tr><td>{{ log.created_at|date:"Y-m-d H:i:s" }}</td><td>{{ log.question|truncatechars:80 }}</td><td>{{ log.latency_ms }} ms</td></tr>
+  {% empty %}
+    <tr><td colspan="3">None, all successful queries were within target.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
 
 <h4>Recent failures</h4>
 <table class="table table-sm">
