@@ -120,3 +120,30 @@ class ChatPageSourcesTests(TestCase):
         response = self.client.get('/chat/')
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Old Doc')
+
+
+class IntentClassificationTests(TestCase):
+    """Story 8: the prompt template is chosen at runtime from the question."""
+
+    def test_intents(self):
+        from .prompts import build_prompt, classify_intent
+        cases = {
+            'What should I do in a flood?': 'procedural',
+            'How do I prepare an emergency kit?': 'procedural',
+            'Why do hurricanes form?': 'explanation',
+            'How do tornadoes form?': 'explanation',
+            'How does storm surge work?': 'explanation',
+            'Explain a hurricane watch': 'explanation',
+            'Write an evacuation plan for my family': 'creative',
+            'What is FEMA?': 'factual',
+        }
+        for question, expected in cases.items():
+            with self.subTest(question=question):
+                self.assertEqual(classify_intent(question), expected)
+
+    def test_different_intents_build_different_prompts(self):
+        from .prompts import build_prompt
+        _, _, steps = build_prompt('How do I prepare?', [])
+        _, _, why = build_prompt('Why do floods happen?', [])
+        self.assertIn('step-by-step', steps)
+        self.assertIn('Explain', why)

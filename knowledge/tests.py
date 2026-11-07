@@ -70,3 +70,59 @@ class IngestPipelineTests(TestCase):
         reload_knowledge_base()
         self.assertEqual(Document.objects.get().chunks.count(), 1)
 # Create your tests here.
+
+
+class DocumentManagementTests(TestCase):
+    """Story 5: define and update the dataset from the website."""
+
+    def setUp(self):
+        from django.contrib.auth.models import User
+        self.client.force_login(User.objects.create_user('staff', password='pw', is_staff=True))
+        self.doc = ingest_text('Floods', 'Move to higher ground during a flash flood warning.')
+
+    def test_edit_updates_text_and_rechunks(self):
+        from django.urls import reverse
+        resp = self.client.post(reverse('knowledge.edit', args=[self.doc.id]), {
+            'title': 'Floods (updated)', 'source_url': '',
+            'raw_text': 'Never drive through flood water. Turn around, do not drown.', 'is_active': 'on',
+        })
+        self.assertRedirects(resp, reverse('knowledge.document_detail', args=[self.doc.id]))
+        self.doc.refresh_from_db()
+        self.assertEqual(self.doc.title, 'Floods (updated)')
+        chunks = ' '.join(self.doc.chunks.values_list('content', flat=True))
+        self.assertIn('Turn around', chunks)
+        self.assertNotIn('higher ground', chunks)
+
+    def test_edit_page_loads(self):
+        from django.urls import reverse
+        self.assertContains(self.client.get(reverse('knowledge.edit', args=[self.doc.id])), 'Edit document')
+
+    def test_toggle_deactivates_and_reactivates(self):
+        from django.urls import reverse
+        url = reverse('knowledge.toggle', args=[self.doc.id])
+        self.client.post(url)
+        self.doc.refresh_from_db()
+        self.assertFalse(self.doc.is_active)
+        self.client.post(url)
+        self.doc.refresh_from_db()
+        self.assertTrue(self.doc.is_active)
+
+    def test_inactive_document_not_retrieved(self):
+        from chat.rag import retrieve
+        self.assertTrue(retrieve('flash flood warning'))
+        Document.objects.filter(pk=self.doc.pk).update(is_active=False)
+        self.assertEqual(retrieve('flash flood warning'), [])
+
+    def test_list_shows_status_and_actions(self):
+        from django.urls import reverse
+        html = self.client.get(reverse('knowledge.documents')).content.decode()
+        for text in ('active', 'Edit', 'Deactivate'):
+            self.assertIn(text, html)
+
+    def test_non_staff_cannot_edit(self):
+        from django.contrib.auth.models import User
+        from django.urls import reverse
+        self.client.force_login(User.objects.create_user('regular', password='pw'))
+        self.assertEqual(self.client.post(reverse('knowledge.toggle', args=[self.doc.id])).status_code, 302)
+        self.doc.refresh_from_db()
+        self.assertTrue(self.doc.is_active)

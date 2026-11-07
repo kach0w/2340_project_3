@@ -2,6 +2,7 @@
 {% block title %}Usage Logs{% endblock %}
 {% block content %}
 <h2>Usage Logs</h2>
+<p class="text-muted">{{ page.paginator.count }} queries total. Response times over the {{ target_ms }} ms target are shown in red.</p>
 <table class="table table-striped table-sm">
   <thead><tr><th>Time</th><th>User</th><th>Intent</th><th>Question</th><th>Latency</th><th>Status</th></tr></thead>
   <tbody>
@@ -11,7 +12,7 @@
       <td>{{ log.user.username|default:"anonymous" }}</td>
       <td>{{ log.intent }}</td>
       <td>{{ log.question|truncatechars:80 }}</td>
-      <td>{{ log.latency_ms }} ms</td>
+      <td class="{% if log.latency_ms > target_ms %}text-danger fw-bold{% endif %}">{{ log.latency_ms }} ms</td>
       <td>{% if log.success %}<span class="badge bg-success">ok</span>{% else %}<span class="badge bg-danger">fail</span>{% endif %}</td>
     </tr>
   {% empty %}

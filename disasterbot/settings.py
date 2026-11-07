@@ -190,6 +190,11 @@ if not DEBUG:
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
 
+# Responsiveness target (story 10): a chatbot answer should take at most this
+# long. The monitoring dashboard reports how many requests meet it.
+LATENCY_TARGET_MS = int(os.getenv('LATENCY_TARGET_MS', '5000'))
+LATENCY_GOAL_PERCENT = 95  # goal: this % of requests under the target
+
 # Accuracy evaluation (story 9). Free tier is ~5 requests/min per model, so
 # pace calls and fail fast instead of waiting on long retries.
 EVAL_SECONDS_BETWEEN_CALLS = float(os.getenv('EVAL_SECONDS_BETWEEN_CALLS', '12'))
