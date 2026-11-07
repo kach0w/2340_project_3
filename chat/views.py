@@ -3,7 +3,7 @@ from django.shortcuts import redirect, render
 from .rag import answer_question
 
 HISTORY_KEY = 'chat_history'
-MAX_HISTORY = 20
+MAX_HISTORY = 50
 
 
 def home(request):
