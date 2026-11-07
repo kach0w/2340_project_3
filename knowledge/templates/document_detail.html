@@ -8,6 +8,13 @@
   {% if document.source_url %}· <a href="{{ document.source_url }}" target="_blank">{{ document.source_url }}</a>{% endif %}
   {% if document.file %}· <a href="{{ document.file.url }}">file</a>{% endif %}
 </p>
+<details class="mb-3">
+  <summary>Raw vs. cleaned text ({{ document.raw_text|length }} &rarr; {{ document.cleaned_text|length }} characters)</summary>
+  <div class="row mt-2">
+    <div class="col-md-6"><h6>Raw</h6><pre style="white-space: pre-wrap;">{{ document.raw_text }}</pre></div>
+    <div class="col-md-6"><h6>Cleaned</h6><pre style="white-space: pre-wrap;">{{ document.cleaned_text }}</pre></div>
+  </div>
+</details>
 <h5>Chunks ({{ document.chunks.count }})</h5>
 {% for chunk in document.chunks.all %}
   <div class="card mb-2"><div class="card-body">
