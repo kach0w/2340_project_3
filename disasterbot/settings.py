@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 import os
 from pathlib import Path
 
+import dj_database_url
 from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -22,12 +23,42 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
+# Load environment variables from the .env file (local dev). On the host,
+# set them in the dashboard instead.
+load_dotenv(BASE_DIR / '.env')
+
+
+def env_bool(name, default=False):
+    return os.getenv(name, str(default)).strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+def env_list(name, default=''):
+    return [x.strip() for x in os.getenv(name, default).split(',') if x.strip()]
+
+
+# SECURITY WARNING: don't run with debug turned on in production!
+# Defaults to True locally; the host sets DEBUG=False.
+DEBUG = env_bool('DEBUG', True)
+
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "django-insecure-yj7r9!w591v3=uk!17-!+!^+%twdu5zf#oa9=kuu2-4jfs#l)9"
+SECRET_KEY = os.getenv('SECRET_KEY')
+if not SECRET_KEY:
+    if not DEBUG:
+        raise RuntimeError('SECRET_KEY must be set when DEBUG is False')
+    SECRET_KEY = "django-insecure-yj7r9!w591v3=uk!17-!+!^+%twdu5zf#oa9=kuu2-4jfs#l)9"
+
+ALLOWED_HOSTS = env_list('ALLOWED_HOSTS', 'localhost,127.0.0.1')
+# Render sets this to the service's public hostname automatically.
+RENDER_EXTERNAL_HOSTNAME = os.getenv('RENDER_EXTERNAL_HOSTNAME')
+if RENDER_EXTERNAL_HOSTNAME:
+    ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
+
+# Needed for POST forms (login, chat) over HTTPS on the public domain.
+CSRF_TRUSTED_ORIGINS = env_list('CSRF_TRUSTED_ORIGINS') + [
+    f'https://{h}' for h in ALLOWED_HOSTS if h not in ('localhost', '127.0.0.1')
+]
 
 # Google Gemini API stuff:
-# Load environment variables from the .env file
-load_dotenv(BASE_DIR / '.env')
 
 # Access the key
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
@@ -39,11 +70,6 @@ GEMINI_MODELS = [
     for m in os.getenv('GEMINI_MODELS', 'gemini-3.8-flash').split(',')
     if m.strip()
 ]
-
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
-
-ALLOWED_HOSTS = []
 
 
 # Application definition
@@ -63,6 +89,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -94,11 +121,12 @@ WSGI_APPLICATION = "disasterbot.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
+# Uses DATABASE_URL (e.g. Postgres on the host) when set, else local SQLite.
 DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
-    }
+    "default": dj_database_url.config(
+        default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
+        conn_max_age=600,
+    )
 }
 
 
@@ -132,6 +160,13 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATICFILES_DIRS = [os.path.join(BASE_DIR, "disasterbot/static")]
+STATIC_ROOT = BASE_DIR / "staticfiles"
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
 
 MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 MEDIA_URL = "/media/"
@@ -142,6 +177,13 @@ LOGIN_URL = "loginaccount"
 RAG_TOP_K = 4
 RAG_CHUNK_SIZE = 800  # characters
 RAG_CHUNK_OVERLAP = 100
+
+# Production hardening (only when DEBUG is off)
+if not DEBUG:
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SECURE_SSL_REDIRECT = env_bool('SECURE_SSL_REDIRECT', True)
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
