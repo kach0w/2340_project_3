@@ -1,8 +1,10 @@
 """Core RAG pipeline: retrieve -> build prompt -> generate -> log."""
+import functools
 import logging
 import re
 import time
 
+import httpx
 from django.conf import settings
 from google import genai
 from google.genai import errors as genai_errors
@@ -13,14 +15,21 @@ from .prompts import build_prompt
 
 logger = logging.getLogger(__name__)
 
-# Timeout is in milliseconds; retries cover temporary 503/429 responses.
-client = genai.Client(
-    api_key=settings.GOOGLE_API_KEY,
-    http_options=genai.types.HttpOptions(
-        timeout=30_000,
-        retry_options=genai.types.HttpRetryOptions(attempts=3),
-    ),
-)
+@functools.cache
+def get_client(timeout_ms=30_000, attempts=3):
+  """Create the Gemini client on first use, so the app can start without a key.
+
+  Timeout is in milliseconds; retries cover temporary 503/429 responses.
+  One cached client per (timeout_ms, attempts) combo.
+  """
+  return genai.Client(
+      api_key=settings.GOOGLE_API_KEY,
+      http_options=genai.types.HttpOptions(
+          timeout=timeout_ms,
+          retry_options=genai.types.HttpRetryOptions(attempts=attempts),
+      ),
+  )
+
 
 _WORD = re.compile(r'[a-z0-9]+')
 STOPWORDS = {
@@ -51,8 +60,12 @@ def retrieve(question, top_k=None):
   return [c for _, c in scored[:top_k]]
 
 
-def generate(system_prompt, prompt):
-  """Call Gemini, falling back to the next model if one is overloaded/out of quota."""
+def generate(system_prompt, prompt, client=None):
+  """Call Gemini, falling back to the next model if one is overloaded/out of quota.
+
+  Pass a custom `client` (e.g. a fail-fast one) to override timeouts/retries.
+  """
+  client = client or get_client()
   last_error = None
   for model in settings.GEMINI_MODELS:
     try:
@@ -64,13 +77,13 @@ def generate(system_prompt, prompt):
           ),
       )
       return response.text or 'The model returned an empty response.'
-    except (genai_errors.ServerError, genai_errors.ClientError) as e:
-      logger.warning('Model %s failed (%s), trying next', model, e.code)
+    except (genai_errors.ServerError, genai_errors.ClientError, httpx.TimeoutException) as e:
+      logger.warning('Model %s failed (%s), trying next', model, getattr(e, 'code', 'timeout'))
       last_error = e
   raise last_error
 
 
-def answer_question(question, user=None):
+def answer_question(question, user=None, client=None):
   start = time.perf_counter()
   log = QueryLog(
       question=question, user=user if user and user.is_authenticated else None
@@ -80,7 +93,7 @@ def answer_question(question, user=None):
     chunks = retrieve(question)
     intent, system_prompt, prompt = build_prompt(question, chunks)
     if chunks:
-      answer = generate(system_prompt, prompt)
+      answer = generate(system_prompt, prompt, client=client)
     else:
       answer = "I couldn't find anything in the knowledge base about that."
   except Exception as e:

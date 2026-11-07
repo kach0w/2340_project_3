@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 import os
+import sys
 from pathlib import Path
 
 import dj_database_url
@@ -167,6 +168,10 @@ STORAGES = {
         "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
     },
 }
+# Tests run with DEBUG=False but without collectstatic, so the hashed-manifest
+# storage can't find files there. Use plain storage for test runs only.
+if len(sys.argv) > 1 and sys.argv[1] == 'test':
+    STORAGES["staticfiles"] = {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}
 
 MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 MEDIA_URL = "/media/"
@@ -184,6 +189,12 @@ if not DEBUG:
     SECURE_SSL_REDIRECT = env_bool('SECURE_SSL_REDIRECT', True)
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
+
+# Accuracy evaluation (story 9). Free tier is ~5 requests/min per model, so
+# pace calls and fail fast instead of waiting on long retries.
+EVAL_SECONDS_BETWEEN_CALLS = float(os.getenv('EVAL_SECONDS_BETWEEN_CALLS', '12'))
+EVAL_TIMEOUT_MS = 15_000
+EVAL_ATTEMPTS = 1
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

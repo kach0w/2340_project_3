@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import EvaluationResult, QueryLog, TestQuestion
+from .models import EvaluationResult, EvaluationRun, QueryLog, TestQuestion
 
 
 @admin.register(QueryLog)
@@ -11,3 +11,8 @@ class QueryLogAdmin(admin.ModelAdmin):
 
 admin.site.register(TestQuestion)
 admin.site.register(EvaluationResult)
+
+
+@admin.register(EvaluationRun)
+class EvaluationRunAdmin(admin.ModelAdmin):
+    list_display = ('started_at', 'status', 'passed', 'total', 'progress')

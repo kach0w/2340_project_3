@@ -1,37 +1,51 @@
 {% extends 'base.html' %}
 {% block title %}Evaluation{% endblock %}
 {% block content %}
+{% if running %}<meta http-equiv="refresh" content="3">{% endif %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h2>Accuracy Testing</h2>
-  <form method="POST" action="{% url 'monitoring.run_eval' %}">{% csrf_token %}
-    <button class="btn btn-primary">Run all tests</button>
+  <form method="POST" action="{% url 'monitoring.run_eval' %}">
+    {% csrf_token %}
+    <button class="btn btn-primary" {% if running %}disabled{% endif %}>
+      {% if running %}Running...{% else %}Run all tests{% endif %}
+    </button>
   </form>
 </div>
 
-<div class="card mb-4"><div class="card-body">
-  <h5>Add test question</h5>
-  <form method="POST">
-    {% csrf_token %}
-    <input class="form-control mb-2" name="question" placeholder="Question" required>
-    <textarea class="form-control mb-2" name="expected_answer" placeholder="Expected answer (reference)"></textarea>
-    <input class="form-control mb-2" name="expected_keywords" placeholder="Expected keywords, comma-separated">
-    <button class="btn btn-secondary">Add</button>
-  </form>
-</div></div>
+{% if running %}
+  <div class="alert alert-info d-flex align-items-center gap-2">
+    <span class="spinner-border spinner-border-sm"></span>
+    <span><strong>{{ running.progress|default:"Starting" }}</strong>. Calls are paced for the Gemini free tier, so a full run takes a few minutes. This page refreshes itself.</span>
+  </div>
+{% endif %}
 
-<h4>Test questions ({{ test_questions|length }})</h4>
-<ul>
-  {% for tq in test_questions %}<li>{{ tq.question }} <small class="text-muted">[{{ tq.expected_keywords }}]</small></li>{% endfor %}
-</ul>
+{% if latest %}
+  <div class="row g-3 mb-4">
+    <div class="col-md-4"><div class="card"><div class="card-body">
+      <div class="text-muted small">Last run pass rate</div>
+      <div class="fs-3 fw-bold">{{ latest.passed }}/{{ latest.total }}</div>
+    </div></div></div>
+    <div class="col-md-4"><div class="card"><div class="card-body">
+      <div class="text-muted small">Average score</div>
+      <div class="fs-3 fw-bold">{{ latest.avg_score|floatformat:2 }}</div>
+    </div></div></div>
+    <div class="col-md-4"><div class="card"><div class="card-body">
+      <div class="text-muted small">Status</div>
+      <div class="fs-3 fw-bold">{{ latest.get_status_display }}</div>
+      <div class="small text-muted">{{ latest.finished_at|date:"Y-m-d H:i" }}</div>
+    </div></div></div>
+  </div>
+  {% if latest.error_message %}<div class="alert alert-danger">{{ latest.error_message }}</div>{% endif %}
+{% endif %}
 
-<h4>Recent results</h4>
-<table class="table table-sm">
-  <thead><tr><th>Time</th><th>Question</th><th>Score</th><th>Latency</th><th>Result</th></tr></thead>
+<h4>Last run results</h4>
+<table class="table table-sm mb-4">
+  <thead><tr><th>Question</th><th>Answer</th><th>Score</th><th>Latency</th><th>Result</th></tr></thead>
   <tbody>
   {% for r in results %}
     <tr>
-      <td>{{ r.created_at|date:"Y-m-d H:i" }}</td>
       <td>{{ r.test_question.question|truncatechars:60 }}</td>
+      <td class="small text-muted">{{ r.actual_answer|truncatechars:120 }}</td>
       <td>{{ r.score|floatformat:2 }}</td>
       <td>{{ r.latency_ms }} ms</td>
       <td>{% if r.passed %}<span class="badge bg-success">pass</span>{% else %}<span class="badge bg-danger">fail</span>{% endif %}</td>
@@ -41,4 +55,32 @@
   {% endfor %}
   </tbody>
 </table>
+
+{% if past_runs|length > 1 %}
+<h4>Run history</h4>
+<table class="table table-sm mb-4">
+  <thead><tr><th>Started</th><th>Status</th><th>Passed</th></tr></thead>
+  <tbody>
+  {% for run in past_runs %}
+    <tr><td>{{ run.started_at|date:"Y-m-d H:i" }}</td><td>{{ run.get_status_display }}</td><td>{{ run.passed }}/{{ run.total }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<div class="card mb-4"><div class="card-body">
+  <h5>Add test question</h5>
+  <form method="POST">
+    {% csrf_token %}
+    <input class="form-control mb-2" name="question" placeholder="Question" required>
+    <textarea class="form-control mb-2" name="expected_answer" placeholder="Expected answer (graded by Gemini)"></textarea>
+    <input class="form-control mb-2" name="expected_keywords" placeholder="Expected keywords, comma-separated (fallback if Gemini is unavailable)">
+    <button class="btn btn-secondary">Add</button>
+  </form>
+</div></div>
+
+<h4>Test questions ({{ test_questions|length }})</h4>
+<ul>
+  {% for tq in test_questions %}<li>{{ tq.question }} <small class="text-muted">[{{ tq.expected_keywords }}]</small></li>{% endfor %}
+</ul>
 {% endblock %}

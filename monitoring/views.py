@@ -5,8 +5,8 @@ from django.db.models import Avg, Count, Max, Q
 from django.shortcuts import redirect, render
 from django.views.decorators.http import require_POST
 
-from .evaluation import run_evaluation
-from .models import EvaluationResult, QueryLog, TestQuestion
+from .evaluation import current_run, start_background_run
+from .models import EvaluationRun, QueryLog, TestQuestion
 
 
 @staff_member_required(login_url='loginaccount')
@@ -37,16 +37,23 @@ def evaluation(request):
             expected_keywords=request.POST.get('expected_keywords', ''),
         )
         return redirect('monitoring.evaluation')
+    running = current_run()
+    latest = EvaluationRun.objects.exclude(status=EvaluationRun.STATUS_RUNNING).first()
     return render(request, 'evaluation.html', {
         'test_questions': TestQuestion.objects.all(),
-        'results': EvaluationResult.objects.select_related('test_question')[:50],
+        'running': running,
+        'latest': latest,
+        'results': latest.results.select_related('test_question').order_by('id') if latest else [],
+        'past_runs': EvaluationRun.objects.exclude(status=EvaluationRun.STATUS_RUNNING)[:10],
     })
 
 
 @staff_member_required(login_url='loginaccount')
 @require_POST
 def run_eval(request):
-    results = run_evaluation()
-    passed = sum(r.passed for r in results)
-    messages.info(request, f'Evaluation complete: {passed}/{len(results)} passed.')
+    _, started = start_background_run()
+    if started:
+        messages.info(request, 'Evaluation started. This page updates automatically.')
+    else:
+        messages.warning(request, 'An evaluation is already running.')
     return redirect('monitoring.evaluation')

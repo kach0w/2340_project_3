@@ -13,7 +13,7 @@ print('PROMPT:', repr(p))
 
 for m in settings.GEMINI_MODELS:
     try:
-        resp = r.client.models.generate_content(
+        resp = r.get_client().models.generate_content(
             model=m,
             contents=p,
             config=r.genai.types.GenerateContentConfig(system_instruction=s),
