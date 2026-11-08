@@ -1,5 +1,7 @@
 from django.db import models
 
+from .location import area_matches
+
 
 class Document(models.Model):
     """A source in the curated dataset (story 5)."""
@@ -22,6 +24,12 @@ class Document(models.Model):
     raw_text = models.TextField(blank=True)
     cleaned_text = models.TextField(blank=True)
     is_active = models.BooleanField(default=True)
+    # Custom story 2: where this alert applies. Blank = everywhere.
+    alert_areas = models.CharField(
+        'Alert areas', max_length=500, blank=True,
+        help_text='Comma-separated ZIP codes (30332) or 3-digit ZIP prefixes (303) this alert '
+                  'applies to. Leave blank for general guidance that applies everywhere.',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -30,6 +38,16 @@ class Document(models.Model):
 
     def __str__(self):
         return self.title
+
+    def area_list(self):
+        return [a.strip() for a in self.alert_areas.split(',') if a.strip()]
+
+    @property
+    def is_local(self):
+        return bool(self.area_list())
+
+    def applies_to(self, zip_code):
+        return area_matches(self.area_list(), zip_code)
 
 
 class Chunk(models.Model):

@@ -42,8 +42,11 @@ def _tokens(text):
   return {w for w in _WORD.findall(text.lower()) if w not in STOPWORDS}
 
 
-def retrieve(question, top_k=None):
+def retrieve(question, top_k=None, zip_code=None):
   """Return the top-k most relevant chunks.
+
+  Custom story 2: when the user has set a ZIP code, alerts tagged for other
+  areas are skipped, so only local alerts + general guidance can be used.
 
   TODO: replace keyword overlap with embedding similarity search.
   """
@@ -53,6 +56,8 @@ def retrieve(question, top_k=None):
   for chunk in Chunk.objects.filter(document__is_active=True).select_related(
       'document'
   ):
+    if not chunk.document.applies_to(zip_code):
+      continue
     score = len(q_tokens & _tokens(chunk.content))
     if score:
       scored.append((score, chunk))
@@ -110,6 +115,7 @@ def build_sources(chunks, answer=''):
           'document_id': c.document_id,
           'title': c.document.title,
           'url': c.document.source_url,
+          'areas': c.document.area_list(),
           'excerpt': _excerpt(c.content),
           'cited': i in cited,
       }
@@ -124,20 +130,20 @@ def group_sources(passages):
     group = groups.setdefault(
         p['document_id'],
         {'id': p['document_id'], 'title': p['title'], 'url': p['url'],
-         'passages': []},
+         'areas': p.get('areas', []), 'passages': []},
     )
     group['passages'].append(p)
   return list(groups.values())
 
-def answer_question(question, user=None, client=None):
+def answer_question(question, user=None, client=None, zip_code=None):
   start = time.perf_counter()
   log = QueryLog(
       question=question, user=user if user and user.is_authenticated else None
   )
   chunks, intent, answer = [], '', ''
   try:
-    chunks = retrieve(question)
-    intent, system_prompt, prompt = build_prompt(question, chunks)
+    chunks = retrieve(question, zip_code=zip_code)
+    intent, system_prompt, prompt = build_prompt(question, chunks, zip_code=zip_code)
     if chunks:
       answer = generate(system_prompt, prompt, client=client)
     else:
@@ -167,4 +173,5 @@ def answer_question(question, user=None, client=None):
       'has_citations': any(p['cited'] for p in passages),
       'latency_ms': log.latency_ms,
       'success': log.success,
+      'zip_code': zip_code,
   }

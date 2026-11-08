@@ -126,3 +126,58 @@ class DocumentManagementTests(TestCase):
         self.assertEqual(self.client.post(reverse('knowledge.toggle', args=[self.doc.id])).status_code, 302)
         self.doc.refresh_from_db()
         self.assertTrue(self.doc.is_active)
+
+
+class AlertAreaTests(TestCase):
+    """Custom story 2: staff tag alerts with the areas they apply to."""
+
+    def setUp(self):
+        from django.contrib.auth.models import User
+        self.staff = User.objects.create_user('admin', password='pw12345!', is_staff=True)
+        self.client.force_login(self.staff)
+
+    def test_parse_areas_normalizes_and_rejects_bad_values(self):
+        from .location import parse_areas
+        self.assertEqual(parse_areas('30332, 303  30332-0001,30318'), ['30332', '303', '30318'])
+        self.assertEqual(parse_areas(''), [])
+        with self.assertRaises(ValueError):
+            parse_areas('30332, atlanta, 1234')
+
+    def test_applies_to(self):
+        doc = Document(title='x', source_type=Document.SOURCE_TEXT, alert_areas='30332, 331')
+        self.assertTrue(doc.applies_to('30332'))
+        self.assertTrue(doc.applies_to('33139'))
+        self.assertFalse(doc.applies_to('30309'))
+        self.assertTrue(doc.applies_to(None))
+        general = Document(title='y', source_type=Document.SOURCE_TEXT)
+        self.assertTrue(general.applies_to('99999'))
+        self.assertFalse(general.is_local)
+
+    def test_ingest_text_with_alert_areas(self):
+        self.client.post('/knowledge/ingest/text/', {
+            'title': 'Tornado warning', 'text': 'Take shelter in an interior room now.',
+            'alert_areas': '30332 30318',
+        })
+        self.assertEqual(Document.objects.get(title='Tornado warning').alert_areas, '30332, 30318')
+
+    def test_invalid_alert_areas_are_rejected_on_ingest(self):
+        self.client.post('/knowledge/ingest/text/', {
+            'title': 'Bad', 'text': 'Take shelter in an interior room now.', 'alert_areas': 'Atlanta',
+        })
+        self.assertFalse(Document.objects.filter(title='Bad').exists())
+
+    def test_edit_alert_areas(self):
+        doc = ingest_text('Heat advisory', 'Stay hydrated and avoid outdoor work this afternoon.')
+        self.client.post(f'/knowledge/{doc.id}/edit/', {
+            'title': doc.title, 'source_url': '', 'alert_areas': '303',
+            'raw_text': doc.raw_text, 'is_active': 'on',
+        })
+        doc.refresh_from_db()
+        self.assertEqual(doc.alert_areas, '303')
+
+    def test_list_shows_alert_area(self):
+        ingest_text('Local alert', 'Boil water notice for the neighborhood.', alert_areas='30332')
+        ingest_text('Everywhere', 'Keep a three day supply of water.')
+        html = self.client.get('/knowledge/').content.decode()
+        self.assertIn('30332', html)
+        self.assertIn('All areas', html)

@@ -147,3 +147,122 @@ class IntentClassificationTests(TestCase):
         _, _, why = build_prompt('Why do floods happen?', [])
         self.assertIn('step-by-step', steps)
         self.assertIn('Explain', why)
+
+
+class LocationFilterTests(TestCase):
+    """Custom story 2: alerts are filtered by the user's ZIP code."""
+
+    def setUp(self):
+        self.atlanta = make_doc('Atlanta flood warning')
+        self.atlanta.alert_areas = '30332, 30318'
+        self.atlanta.save()
+        make_chunk(self.atlanta, 0, 'Flood warning: evacuate low-lying areas near the river now.')
+
+        self.metro = make_doc('Metro Atlanta flood watch')
+        self.metro.alert_areas = '303'
+        self.metro.save()
+        make_chunk(self.metro, 0, 'Flood watch: move valuables upstairs and monitor river levels.')
+
+        self.miami = make_doc('Miami flood warning')
+        self.miami.alert_areas = '33101'
+        self.miami.save()
+        make_chunk(self.miami, 0, 'Flood warning: evacuate Miami Beach zones A and B now.')
+
+        self.general = make_doc('General flood safety')
+        make_chunk(self.general, 0, 'Flood safety: never drive through flood water.')
+
+    def titles(self, chunks):
+        return {c.document.title for c in chunks}
+
+    def test_zip_keeps_local_and_general_alerts_and_drops_distant_ones(self):
+        from .rag import retrieve
+        titles = self.titles(retrieve('flood warning evacuate', top_k=10, zip_code='30332'))
+        self.assertEqual(titles, {'Atlanta flood warning', 'Metro Atlanta flood watch', 'General flood safety'})
+
+    def test_zip_prefix_area_matches_any_zip_in_it(self):
+        from .rag import retrieve
+        titles = self.titles(retrieve('flood', top_k=10, zip_code='30309'))
+        self.assertIn('Metro Atlanta flood watch', titles)
+        self.assertNotIn('Atlanta flood warning', titles)  # 30309 isn't one of its ZIPs
+        self.assertNotIn('Miami flood warning', titles)
+
+    def test_other_location_gets_its_own_alerts(self):
+        from .rag import retrieve
+        titles = self.titles(retrieve('flood warning evacuate', top_k=10, zip_code='33101'))
+        self.assertEqual(titles, {'Miami flood warning', 'General flood safety'})
+
+    def test_no_location_means_no_filtering(self):
+        from .rag import retrieve
+        self.assertEqual(len(self.titles(retrieve('flood', top_k=10))), 4)
+
+    def test_prompt_mentions_location_only_when_set(self):
+        _, _, with_zip = build_prompt('what about floods', [], zip_code='30332')
+        _, _, without = build_prompt('what about floods', [])
+        self.assertIn('ZIP code 30332', with_zip)
+        self.assertNotIn('ZIP code', without)
+
+    @patch('chat.rag.generate', return_value='Evacuate now [1].')
+    def test_answer_sources_show_local_alert_areas(self, _):
+        result = answer_question('miami flood warning evacuate', zip_code='30332')
+        titles = [g['title'] for g in result['sources']]
+        self.assertNotIn('Miami flood warning', titles)
+        atl = next(g for g in result['sources'] if g['title'] == 'Atlanta flood warning')
+        self.assertEqual(atl['areas'], ['30332', '30318'])
+
+    def test_set_and_clear_location_for_guest(self):
+        self.client.post('/chat/location/', {'location': '30332-1234'})
+        self.assertEqual(self.client.session['zip_code'], '30332')
+        self.assertContains(self.client.get('/chat/'), 'ZIP 30332')
+        self.client.post('/chat/location/', {'clear': '1'})
+        self.assertNotIn('zip_code', self.client.session)
+        self.assertContains(self.client.get('/chat/'), 'No location set')
+
+    def test_address_is_accepted_and_shown_back(self):
+        # Wireflow #2: the user types an address; the page shows it back.
+        address = '266 Ferst Dr NW, Atlanta, GA 30332'
+        self.client.post('/chat/location/', {'location': address})
+        self.assertEqual(self.client.session['zip_code'], '30332')
+        html = self.client.get('/chat/').content.decode()
+        self.assertIn('Ask now for information about emergencies at:', html)
+        self.assertIn(address, html)
+        self.assertIn('Change address', html)
+
+    def test_change_address_shows_the_form_prefilled(self):
+        self.client.post('/chat/location/', {'location': '30332'})
+        html = self.client.get('/chat/?change=location').content.decode()
+        self.assertIn('id="location-form"', html)
+        self.assertIn('value="30332"', html)
+
+    def test_zip_from_location(self):
+        from knowledge.location import zip_from_location
+        self.assertEqual(zip_from_location('30332'), '30332')
+        self.assertEqual(zip_from_location('12345 Main St, Miami, FL 33101-2000'), '33101')
+        self.assertIsNone(zip_from_location('Atlanta, GA'))
+        self.assertIsNone(zip_from_location('123456'))
+
+    def test_location_without_zip_is_rejected(self):
+        response = self.client.post('/chat/location/', {'location': 'Atlanta, GA'}, follow=True)
+        self.assertNotIn('zip_code', self.client.session)
+        self.assertContains(response, 'Enter a 5-digit ZIP code')
+
+    def test_logged_in_users_zip_is_saved_on_profile_and_persists(self):
+        from django.contrib.auth.models import User
+        from accounts.models import Profile
+        user = User.objects.create_user('aiden', password='pw12345!')
+        self.client.force_login(user)
+        self.client.post('/chat/location/', {'location': 'North Ave, Atlanta, GA 30332'})
+        profile = Profile.objects.get(user=user)
+        self.assertEqual(profile.zip_code, '30332')
+        self.assertEqual(profile.location, 'North Ave, Atlanta, GA 30332')
+        # New session (e.g. another device): location is still applied.
+        self.client.logout()
+        self.client.force_login(user)
+        self.assertContains(self.client.get('/chat/'), 'ZIP 30332')
+
+    @patch('chat.rag.generate', return_value='Evacuate now [1].')
+    def test_chat_uses_saved_zip(self, _):
+        self.client.post('/chat/location/', {'location': '30332'})
+        self.client.post('/chat/', {'question': 'miami flood warning evacuate'})
+        html = self.client.get('/chat/').content.decode()
+        self.assertNotIn('Miami flood warning', html)
+        self.assertIn('Local alert: 30332, 30318', html)

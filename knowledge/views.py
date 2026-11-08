@@ -31,15 +31,24 @@ def ingest(request, method):
         if method == 'file':
             form = FileUploadForm(request.POST, request.FILES)
             if form.is_valid():
-                ingestion.ingest_file(form.cleaned_data['title'], form.cleaned_data['file'])
+                ingestion.ingest_file(
+                    form.cleaned_data['title'], form.cleaned_data['file'],
+                    alert_areas=form.cleaned_data['alert_areas'],
+                )
         elif method == 'url':
             form = UrlIngestForm(request.POST)
             if form.is_valid():
-                ingestion.ingest_url(form.cleaned_data['title'], form.cleaned_data['url'])
+                ingestion.ingest_url(
+                    form.cleaned_data['title'], form.cleaned_data['url'],
+                    alert_areas=form.cleaned_data['alert_areas'],
+                )
         elif method == 'text':
             form = TextIngestForm(request.POST)
             if form.is_valid():
-                ingestion.ingest_text(form.cleaned_data['title'], form.cleaned_data['text'])
+                ingestion.ingest_text(
+                    form.cleaned_data['title'], form.cleaned_data['text'],
+                    alert_areas=form.cleaned_data['alert_areas'],
+                )
         else:
             messages.error(request, 'Unknown ingestion method.')
             return redirect('knowledge.documents')

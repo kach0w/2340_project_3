@@ -150,16 +150,19 @@ def process_document(document):
 
 # ---------- ingestion methods ----------
 
-def ingest_text(title, text):
-    doc = Document.objects.create(title=title, source_type=Document.SOURCE_TEXT, raw_text=text)
+def ingest_text(title, text, alert_areas=''):
+    doc = Document.objects.create(
+        title=title, source_type=Document.SOURCE_TEXT, raw_text=text, alert_areas=alert_areas,
+    )
     return process_document(doc)
 
 
-def ingest_file(title, uploaded_file):
+def ingest_file(title, uploaded_file, alert_areas=''):
     text = uploaded_file.read().decode('utf-8', errors='ignore')
     uploaded_file.seek(0)
     doc = Document.objects.create(
         title=title, source_type=Document.SOURCE_UPLOAD, file=uploaded_file, raw_text=text,
+        alert_areas=alert_areas,
     )
     return process_document(doc)
 
@@ -185,7 +188,7 @@ class _TextExtractor(HTMLParser):
             self.parts.append(data.strip())
 
 
-def ingest_url(title, url):
+def ingest_url(title, url, alert_areas=''):
     req = Request(url, headers={'User-Agent': 'DisasterBot/0.1'})
     with urlopen(req, timeout=15) as resp:
         html = resp.read().decode('utf-8', errors='ignore')
@@ -193,6 +196,7 @@ def ingest_url(title, url):
     parser.feed(html)
     doc = Document.objects.create(
         title=title, source_type=Document.SOURCE_URL, source_url=url, raw_text='\n'.join(parser.parts),
+        alert_areas=alert_areas,
     )
     return process_document(doc)
 

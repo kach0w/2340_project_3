@@ -9,6 +9,7 @@
 <p class="text-muted">
   {{ document.get_source_type_display }}
   {% if document.source_url %}· <a href="{{ document.source_url }}" target="_blank">{{ document.source_url }}</a>{% endif %}
+  · Alert area: {% if document.alert_areas %}<span class="badge bg-warning text-dark">{{ document.alert_areas }}</span>{% else %}all areas{% endif %}
   {% if document.file %}· <a href="{{ document.file.url }}">file</a>{% endif %}
 </p>
 <details class="mb-3">
