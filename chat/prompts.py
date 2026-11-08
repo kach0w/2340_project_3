@@ -55,8 +55,18 @@ def classify_intent(question):
     return INTENT_FACTUAL
 
 
-def build_prompt(question, chunks):
+LOCATION_NOTE = (
+    'The user is located in ZIP code {zip_code}. Alerts for other areas have already been '
+    'filtered out of the context, so only give directives that apply to this area and '
+    'general safety guidance. If an alert in the context names its area, mention it.\n\n'
+)
+
+
+def build_prompt(question, chunks, zip_code=None):
     intent = classify_intent(question)
     context = '\n\n'.join(f'[{i + 1}] {c.content}' for i, c in enumerate(chunks))
     prompt = PROMPT_TEMPLATES[intent].format(context=context, question=question)
+    if zip_code:
+        # Custom story 2: tell the model where the user is.
+        prompt = LOCATION_NOTE.format(zip_code=zip_code) + prompt
     return intent, SYSTEM_PROMPT, prompt

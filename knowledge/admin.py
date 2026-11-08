@@ -10,7 +10,7 @@ class ChunkInline(admin.TabularInline):
 
 @admin.register(Document)
 class DocumentAdmin(admin.ModelAdmin):
-    list_display = ('title', 'source_type', 'is_active', 'created_at')
+    list_display = ('title', 'source_type', 'alert_areas', 'is_active', 'created_at')
     list_filter = ('source_type', 'is_active')
     inlines = [ChunkInline]
 

@@ -8,11 +8,47 @@
   </form>
 </div>
 
+{# Custom story 2: the user's location (wireflow #2: enter address -> "Ask now ... at: <address>" + Change Address) #}
+<div class="card mb-3 location-bar">
+  <div class="card-body">
+    {% if zip_code and not editing_location %}
+      <div class="d-flex flex-wrap align-items-center gap-3">
+        <div>
+          <div class="text-muted small">Ask now for information about emergencies at:</div>
+          <div class="fs-5 fw-semibold">&#128205; {{ location }}</div>
+          <div class="text-muted small">Only alerts for ZIP {{ zip_code }} (plus general safety guidance) are used. Warnings for other areas are filtered out.</div>
+        </div>
+        <div class="d-flex gap-2 ms-auto">
+          <a class="btn btn-sm btn-outline-primary" href="?change=location">Change address</a>
+          <form method="POST" action="{% url 'chat.location' %}">{% csrf_token %}
+            <button class="btn btn-sm btn-outline-secondary" name="clear" value="1">Clear</button>
+          </form>
+        </div>
+      </div>
+    {% else %}
+      <form method="POST" action="{% url 'chat.location' %}" id="location-form">
+        {% csrf_token %}
+        <label class="form-label mb-1" for="location-input">
+          &#128205; Enter your address or ZIP code to only see alerts for your area
+        </label>
+        <div class="d-flex gap-2">
+          <input class="form-control" id="location-input" name="location" value="{{ location|default:'' }}"
+                 placeholder="e.g. 266 Ferst Dr NW, Atlanta, GA 30332  or  30332" maxlength="255" required>
+          <button class="btn btn-primary text-nowrap">Set location</button>
+          {% if editing_location %}<a class="btn btn-link" href="{% url 'chat' %}">Cancel</a>{% endif %}
+        </div>
+        {% if not zip_code %}<div class="form-text">No location set, so alerts for all areas may appear.</div>{% endif %}
+      </form>
+    {% endif %}
+  </div>
+</div>
+
 <div class="chat-box mb-3" id="chat-box">
   {% for turn in history %}
     <div class="p-3 rounded msg-user mb-2"><strong>You:</strong> {{ turn.question }}</div>
     <div class="p-3 rounded msg-bot mb-3">
       <strong>DisasterBot</strong> <span class="badge bg-secondary">{{ turn.intent }}</span>
+      {% if turn.zip_code %}<span class="badge bg-info text-dark" title="{{ turn.location }}">&#128205; {{ turn.zip_code }}</span>{% endif %}
       <p class="mb-2 mt-1" style="white-space: pre-wrap;">{{ turn.answer }}</p>
       {% if turn.sources %}
         <div class="source-list text-muted">
@@ -22,6 +58,7 @@
             <div class="mt-2">
               <div>
                 {% if s.url %}<a href="{{ s.url }}" target="_blank" rel="noopener noreferrer">{{ s.title }}</a>{% else %}{{ s.title }}{% endif %}
+                {% if s.areas %}<span class="badge bg-warning text-dark">Local alert: {{ s.areas|join:", " }}</span>{% endif %}
               </div>
               {% if s.passages %}
                 {% for p in s.passages %}

@@ -15,6 +15,15 @@ python manage.py runserver
 - `monitoring` — query logs, latency/failure dashboard, accuracy evaluation
 - `accounts` — signup / login / logout
 
+## Location-filtered alerts (custom story 2)
+- Staff can give any document an **Alert areas** value when adding or editing it:
+  comma-separated 5-digit ZIPs (`30332, 30318`) or 3-digit ZIP prefixes (`303` = all
+  of metro Atlanta). Leave it blank for general guidance that applies everywhere.
+- Users set their ZIP in the bar at the top of the Chat page (saved on their
+  profile when logged in, in the session for guests). Retrieval then skips alerts
+  tagged for other areas, and the prompt tells the model the user's ZIP.
+- With no ZIP set, nothing is filtered.
+
 ## Deployment (Render)
 The repo ships a Render Blueprint (`render.yaml`) that creates the web service
 (gunicorn + WhiteNoise for static files) and a free Postgres database.
