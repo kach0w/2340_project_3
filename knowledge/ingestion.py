@@ -9,6 +9,7 @@ Ingestion methods:
 from html import unescape
 import re
 import unicodedata
+import logging
 from html.parser import HTMLParser
 from urllib.request import Request, urlopen
 
@@ -17,6 +18,9 @@ from django.db import transaction
 
 from .models import Chunk, Document
 
+from .embeddings import embed_text
+
+logger = logging.getLogger(__name__)
 
 # ---------- cleaning ----------
 
@@ -134,17 +138,25 @@ def chunk_text(text, size=None, overlap=None):
     return [c for c in chunks if len(c) >= MIN_CHUNK_CHARS or len(chunks) == 1]
 
 
-@transaction.atomic
 def process_document(document):
-    """Clean + (re)chunk a document. Safe to call again to reload it."""
-    document.cleaned_text = clean_text(document.raw_text)
-    document.save()
-    document.chunks.all().delete()
-    Chunk.objects.bulk_create([
-        Chunk(document=document, chunk_index=i, content=c)
-        for i, c in enumerate(chunk_text(document.cleaned_text))
-    ])
-    # TODO: compute embeddings for each chunk
+    """Prepare embeddings before atomically replacing a document's chunks."""
+    cleaned_text = clean_text(document.raw_text)
+    chunks = []
+    for i, content in enumerate(chunk_text(cleaned_text)):
+        chunk = Chunk(document=document, chunk_index=i, content=content)
+        try:
+            chunk.embedding = embed_text(content, "RETRIEVAL_DOCUMENT")
+        except Exception:
+            logger.exception(
+                "Could not embed chunk %s for document %s", i, document.pk,
+            )
+        chunks.append(chunk)
+
+    with transaction.atomic():
+        document.cleaned_text = cleaned_text
+        document.save()
+        document.chunks.all().delete()
+        Chunk.objects.bulk_create(chunks)
     return document
 
 
