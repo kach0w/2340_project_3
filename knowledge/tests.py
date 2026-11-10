@@ -1,4 +1,4 @@
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase, TransactionTestCase
 
 from .ingestion import chunk_text, clean_text, ingest_text
 from .models import Document
@@ -181,3 +181,98 @@ class AlertAreaTests(TestCase):
         html = self.client.get('/knowledge/').content.decode()
         self.assertIn('30332', html)
         self.assertIn('All areas', html)
+
+
+class EmbeddingTests(SimpleTestCase):
+    def test_embedding_request_and_vector(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from django.test import override_settings
+        from .embeddings import EMBEDDING_MODEL, embed_text
+        with override_settings(GOOGLE_API_KEY='test-key'), patch('knowledge.embeddings._client') as client:
+            client.return_value.models.embed_content.return_value = SimpleNamespace(
+                embeddings=[SimpleNamespace(values=[1.0, 2.0])])
+            self.assertEqual(embed_text('Shelter guidance', 'RETRIEVAL_DOCUMENT'), [1.0, 2.0])
+            args = client.return_value.models.embed_content.call_args.kwargs
+            self.assertEqual(args['model'], EMBEDDING_MODEL)
+            self.assertEqual(args['contents'], 'Shelter guidance')
+            self.assertEqual(args['config'].task_type, 'RETRIEVAL_DOCUMENT')
+
+    def test_empty_input_or_missing_key_skips_api(self):
+        from unittest.mock import patch
+        from django.test import override_settings
+        from .embeddings import embed_text
+        with patch('knowledge.embeddings._client') as client:
+            with override_settings(GOOGLE_API_KEY=''):
+                self.assertIsNone(embed_text('text', 'RETRIEVAL_QUERY'))
+            with override_settings(GOOGLE_API_KEY='test-key'):
+                self.assertIsNone(embed_text('', 'RETRIEVAL_QUERY'))
+            client.assert_not_called()
+
+    def test_empty_response_and_api_failure(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from django.test import override_settings
+        from .embeddings import embed_text
+        with override_settings(GOOGLE_API_KEY='test-key'), patch('knowledge.embeddings._client') as client:
+            for embeddings in ([], [SimpleNamespace(values=[])]):
+                client.return_value.models.embed_content.return_value = SimpleNamespace(embeddings=embeddings)
+                with self.assertRaises(ValueError):
+                    embed_text('text', 'RETRIEVAL_QUERY')
+            client.return_value.models.embed_content.side_effect = RuntimeError('API unavailable')
+            with self.assertRaises(RuntimeError):
+                embed_text('text', 'RETRIEVAL_QUERY')
+
+    def test_cosine_similarity(self):
+        from .embeddings import cosine_similarity
+        for a, b, expected in [([1, 2], [2, 4], 1), ([1, 0], [0, 1], 0),
+                               ([1, 0], [-1, 0], -1), ([0, 0], [1, 0], 0),
+                               ([], [1], 0), (None, [1], 0), ([1], [1, 2], 0)]:
+            with self.subTest(a=a, b=b):
+                self.assertAlmostEqual(cosine_similarity(a, b), expected)
+
+
+class EmbeddingIngestionTests(TransactionTestCase):
+    def test_embeddings_prepared_outside_transaction_and_reload_replaces(self):
+        from unittest.mock import patch
+        from django.db import connection
+        from .ingestion import process_document
+        doc = Document.objects.create(title='Test', source_type='text', raw_text='Move to higher ground during a flood warning.')
+        def embed(content, task):
+            self.assertFalse(connection.in_atomic_block)
+            self.assertEqual(content, doc.raw_text)
+            self.assertEqual(task, 'RETRIEVAL_DOCUMENT')
+            return [1.0, 0.0]
+        with patch('knowledge.ingestion.embed_text', side_effect=embed):
+            process_document(doc)
+            process_document(doc)
+        self.assertEqual(doc.chunks.count(), 1)
+        self.assertEqual(doc.chunks.get().embedding, [1.0, 0.0])
+
+    def test_api_failure_preserves_chunk_without_embedding(self):
+        from unittest.mock import patch
+        with patch('knowledge.ingestion.embed_text', side_effect=RuntimeError('API unavailable')):
+            with self.assertLogs('knowledge.ingestion', level='ERROR'):
+                doc = ingest_text('Test', 'Move to higher ground during a flood warning.')
+        self.assertIsNone(doc.chunks.get().embedding)
+
+    def test_missing_key_result_preserves_chunk(self):
+        from unittest.mock import patch
+        with patch('knowledge.ingestion.embed_text', return_value=None):
+            doc = ingest_text('Test', 'Move to higher ground during a flood warning.')
+        self.assertIsNone(doc.chunks.get().embedding)
+
+    def test_replacement_failure_rolls_back_old_chunks_and_cleaned_text(self):
+        from unittest.mock import patch
+        from .ingestion import process_document
+        with patch('knowledge.ingestion.embed_text', return_value=[1, 0]):
+            doc = ingest_text('Test', 'Original flood safety guidance for every household.')
+        old_pk = doc.chunks.get().pk
+        old_cleaned = doc.cleaned_text
+        doc.raw_text = 'Updated guidance about evacuation routes and shelters.'
+        with patch('knowledge.ingestion.embed_text', return_value=[0, 1]), patch('knowledge.ingestion.Chunk.objects.bulk_create', side_effect=RuntimeError('write failed')):
+            with self.assertRaises(RuntimeError):
+                process_document(doc)
+        doc.refresh_from_db()
+        self.assertEqual(doc.cleaned_text, old_cleaned)
+        self.assertEqual(doc.chunks.get().pk, old_pk)

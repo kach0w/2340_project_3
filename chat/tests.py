@@ -266,3 +266,62 @@ class LocationFilterTests(TestCase):
         html = self.client.get('/chat/').content.decode()
         self.assertNotIn('Miami flood warning', html)
         self.assertIn('Local alert: 30332, 30318', html)
+
+
+class SemanticRetrievalTests(TestCase):
+    def chunk(self, title, content, vector, areas='', active=True):
+        doc = make_doc(title, is_active=active)
+        doc.alert_areas = areas
+        doc.save()
+        return Chunk.objects.create(document=doc, chunk_index=0, content=content, embedding=vector)
+
+    @patch('chat.rag.embed_text', return_value=[1, 0])
+    def test_semantic_order_top_k_and_no_threshold(self, embed):
+        from .rag import retrieve
+        weak = self.chunk('Weak', 'flood flood', [0, 1])
+        best = self.chunk('Best', 'Rising water requires immediate relocation.', [1, 0])
+        opposite = self.chunk('Opposite', 'Other guidance', [-1, 0])
+        self.assertEqual(retrieve('flood', top_k=1), [best])
+        self.assertEqual(retrieve('flood', top_k=10), [best, weak, opposite])
+        embed.assert_called_with('flood', 'RETRIEVAL_QUERY')
+
+    @patch('chat.rag.embed_text', return_value=[1, 0])
+    def test_missing_and_incompatible_embeddings_do_not_disable_semantics(self, _):
+        from .rag import retrieve
+        best = self.chunk('Semantic', 'Seek higher terrain.', [1, 0])
+        self.chunk('Missing', 'flood', None)
+        self.chunk('Wrong dimensions', 'flood', [1, 0, 0])
+        self.assertEqual(retrieve('flood'), [best])
+
+    @patch('chat.rag.embed_text', return_value=[1, 0])
+    def test_zip_and_active_filtering_before_semantic_ranking(self, _):
+        from .rag import retrieve
+        local = self.chunk('Local', 'Local guidance', [1, 0], '30332')
+        metro = self.chunk('Metro', 'Metro guidance', [0.9, 0.1], '303')
+        general = self.chunk('General', 'General guidance', [0.8, 0.2])
+        distant = self.chunk('Distant', 'Distant guidance', [1, 0], '33101')
+        self.chunk('Inactive', 'Inactive guidance', [1, 0], active=False)
+        self.assertEqual(retrieve('evacuate', top_k=10, zip_code='30332'), [local, metro, general])
+        self.assertEqual(set(retrieve('evacuate', top_k=10, zip_code='30309')), {metro, general})
+        self.assertEqual(set(retrieve('evacuate', top_k=10)), {local, metro, general, distant})
+
+    @patch('chat.rag.embed_text')
+    def test_no_embeddings_or_no_eligible_chunks_skips_api(self, embed):
+        from .rag import retrieve
+        self.assertEqual(retrieve('flood'), [])
+        chunk = self.chunk('Legacy', 'flood warning', None)
+        self.assertEqual(retrieve('flood'), [chunk])
+        embed.assert_not_called()
+
+    @patch('chat.rag.embed_text')
+    def test_query_failure_missing_key_and_incompatible_vectors_use_keywords(self, embed):
+        from .rag import retrieve
+        chunk = self.chunk('Guide', 'flood warning', [1, 0])
+        embed.side_effect = RuntimeError('API unavailable')
+        with self.assertLogs('chat.rag', level='ERROR'):
+            self.assertEqual(retrieve('flood'), [chunk])
+        embed.side_effect = None
+        for vector in (None, [1, 0, 0]):
+            embed.return_value = vector
+            self.assertEqual(retrieve('flood'), [chunk])
+            self.assertEqual(retrieve('unrelated'), [])

@@ -3,7 +3,6 @@ import functools
 import logging
 import re
 import time
-
 import httpx
 from django.conf import settings
 from google import genai
@@ -12,6 +11,8 @@ from knowledge.models import Chunk
 from monitoring.models import QueryLog
 
 from .prompts import build_prompt
+
+from knowledge.embeddings import embed_text, cosine_similarity
 
 logger = logging.getLogger(__name__)
 
@@ -48,21 +49,72 @@ def retrieve(question, top_k=None, zip_code=None):
   Custom story 2: when the user has set a ZIP code, alerts tagged for other
   areas are skipped, so only local alerts + general guidance can be used.
 
-  TODO: replace keyword overlap with embedding similarity search.
+  Use compatible embeddings when available, otherwise fall back to keywords.
   """
+
   top_k = top_k or settings.RAG_TOP_K
-  q_tokens = _tokens(question)
+
+  # Get active chunks that apply to the user's location.
+  eligible = [
+      chunk
+      for chunk in Chunk.objects.filter(
+          document__is_active=True
+      ).select_related("document")
+      if chunk.document.applies_to(zip_code)
+  ]
+
+  if not eligible:
+      return []
+
+  # Generate the question's embedding.
+  query_vector = None
+
+  if any(chunk.embedding for chunk in eligible):
+      try:
+          query_vector = embed_text(
+              question,
+              "RETRIEVAL_QUERY"
+          )
+      except Exception:
+          logger.exception("Query embedding failed")
+
+
+  # A missing embedding must not disable semantic search for other chunks.
+  compatible = [
+      chunk for chunk in eligible
+      if query_vector and chunk.embedding
+      and len(chunk.embedding) == len(query_vector)
+  ]
+
   scored = []
-  for chunk in Chunk.objects.filter(document__is_active=True).select_related(
-      'document'
-  ):
-    if not chunk.document.applies_to(zip_code):
-      continue
-    score = len(q_tokens & _tokens(chunk.content))
-    if score:
-      scored.append((score, chunk))
-  scored.sort(key=lambda s: s[0], reverse=True)
-  return [c for _, c in scored[:top_k]]
+  if compatible:
+      for chunk in compatible:
+          score = cosine_similarity(
+              query_vector,
+              chunk.embedding
+          )
+          scored.append((score, chunk))
+
+  else:
+      # Fallback to the existing keyword retrieval.
+      q_tokens = _tokens(question)
+
+      for chunk in eligible:
+          score = len(q_tokens & _tokens(chunk.content))
+
+          if score > 0:
+              scored.append((score, chunk))
+
+
+  # Sort from highest score to lowest.
+  scored.sort(
+      key=lambda item: item[0],
+      reverse=True
+  )
+
+  # Return only the top K chunks.
+  return [chunk for _, chunk in scored[:top_k]]
+
 
 
 def generate(system_prompt, prompt, client=None):
