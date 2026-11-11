@@ -45,3 +45,4 @@ uritemplate==4.2.0
 urllib3==2.8.0
 websockets==17.4
 whitenoise==6.9.0
+pypdf
