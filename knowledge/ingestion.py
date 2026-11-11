@@ -158,6 +158,22 @@ def process_document(document):
         document.chunks.all().delete()
         Chunk.objects.bulk_create(chunks)
     return document
+# reading pdf documents
+from pypdf import PdfReader
+
+def _read_upload(uploaded_file):
+    """Return text from a .pdf (via pypdf) or a plain-text upload."""
+    name = (uploaded_file.name or '').lower()
+    if name.endswith('.pdf'):
+        reader = PdfReader(uploaded_file)
+        text = '\n\n'.join((page.extract_text() or '') for page in reader.pages)
+    else:
+        text = uploaded_file.read().decode('utf-8', errors='ignore')
+    uploaded_file.seek(0)
+    text = text.replace('\x00', '')   # Postgres rejects NUL bytes
+    if not text.strip():
+        raise ValueError('No readable text found in this file (scanned PDFs need OCR).')
+    return text
 
 
 # ---------- ingestion methods ----------
@@ -170,8 +186,7 @@ def ingest_text(title, text, alert_areas=''):
 
 
 def ingest_file(title, uploaded_file, alert_areas=''):
-    text = uploaded_file.read().decode('utf-8', errors='ignore')
-    uploaded_file.seek(0)
+    text = _read_upload(uploaded_file)
     doc = Document.objects.create(
         title=title, source_type=Document.SOURCE_UPLOAD, file=uploaded_file, raw_text=text,
         alert_areas=alert_areas,
@@ -211,6 +226,9 @@ def ingest_url(title, url, alert_areas=''):
         alert_areas=alert_areas,
     )
     return process_document(doc)
+
+# PDF Ingestion:
+
 
 
 # ---------- admin controls (story 11) ----------
