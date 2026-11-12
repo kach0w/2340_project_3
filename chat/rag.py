@@ -187,7 +187,7 @@ def group_sources(passages):
     group['passages'].append(p)
   return list(groups.values())
 
-def answer_question(question, user=None, client=None, zip_code=None):
+def answer_question(question, user=None, client=None, zip_code=None, language=None):
   start = time.perf_counter()
   log = QueryLog(
       question=question, user=user if user and user.is_authenticated else None
@@ -195,7 +195,7 @@ def answer_question(question, user=None, client=None, zip_code=None):
   chunks, intent, answer = [], '', ''
   try:
     chunks = retrieve(question, zip_code=zip_code)
-    intent, system_prompt, prompt = build_prompt(question, chunks, zip_code=zip_code)
+    intent, system_prompt, prompt = build_prompt(question, chunks, zip_code=zip_code, language=language)
     if chunks:
       answer = generate(system_prompt, prompt, client=client)
     else:

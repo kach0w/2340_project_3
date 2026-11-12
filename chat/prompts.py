@@ -23,8 +23,8 @@ SYSTEM_PROMPT = (
     'You are DisasterBot, an assistant that answers ONLY using the provided context. '
     'If the context does not contain the answer, say you do not know. '
     'Cite sources by their [number].'
-    'Reply in the same language the user wrote their question in.'
 )
+DEFAULT_LANGUAGE_RULE = ' Reply in the same language the user wrote their question in.'
 
 PROMPT_TEMPLATES = {
     INTENT_FACTUAL: (
@@ -63,11 +63,21 @@ LOCATION_NOTE = (
 )
 
 
-def build_prompt(question, chunks, zip_code=None):
+def build_prompt(question, chunks, zip_code=None, language=None):
     intent = classify_intent(question)
     context = '\n\n'.join(f'[{i + 1}] {c.content}' for i, c in enumerate(chunks))
     prompt = PROMPT_TEMPLATES[intent].format(context=context, question=question)
     if zip_code:
         # Custom story 2: tell the model where the user is.
         prompt = LOCATION_NOTE.format(zip_code=zip_code) + prompt
-    return intent, SYSTEM_PROMPT, prompt
+
+    system_prompt = SYSTEM_PROMPT
+    if language:
+        system_prompt += (
+            f' Write your entire answer in {language}. Translate directives faithfully, '
+            'but keep numbers, addresses, phone numbers, ZIP codes and [n] citations exactly as written.'
+        )
+    else:
+        system_prompt += DEFAULT_LANGUAGE_RULE
+    return intent, system_prompt, prompt
+

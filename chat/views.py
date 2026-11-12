@@ -6,9 +6,17 @@ from knowledge.location import zip_from_location
 
 from .location import get_location, set_location as save_location
 from .rag import answer_question
+from django.utils.http import url_has_allowed_host_and_scheme
 
 HISTORY_KEY = 'chat_history'
 MAX_HISTORY = 50
+# code -> name sent to Gemini. English maps to None, so default users get the unchanged prompt.
+LANGUAGES = {
+    'en': None,
+    'es': 'Spanish',
+    'zh': 'Chinese',
+    'fr': 'French',
+}
 
 
 def home(request):
@@ -26,7 +34,7 @@ def chat(request):
     if request.method == 'POST':
         question = request.POST.get('question', '').strip()
         if question:
-            result = answer_question(question, user=request.user, zip_code=zip_code)
+            result = answer_question(question, user=request.user, zip_code=zip_code, language=LANGUAGES.get(request.session.get('language', 'en')),)
             history.append({
                 'question': question,
                 'answer': result['answer'],
@@ -46,6 +54,17 @@ def chat(request):
         'editing_location': request.GET.get('change') == 'location',
     })
 
+@require_POST
+def set_language(request):
+    """Save the chosen answer language in the session."""
+    code = request.POST.get('language', 'en')
+    if code in LANGUAGES:   # whitelist: this value ends up in the system prompt
+        request.session['language'] = code
+
+    next_url = request.POST.get('next', '')
+    if url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+        return redirect(next_url)
+    return redirect('chat')
 
 @require_POST
 def set_location(request):

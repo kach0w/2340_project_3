@@ -25,7 +25,19 @@
             <a class="nav-link" href="{% url 'monitoring.evaluation' %}">Evaluation</a>
           {% endif %}
         </div>
-        <div class="navbar-nav">
+        <div class="navbar-nav align-items-lg-center">
+          <form method="POST" action="{% url 'chat.language' %}" class="d-flex me-lg-3 my-2 my-lg-0">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+            <select name="language" class="form-select form-select-sm"
+                    aria-label="Answer language" title="Language for chatbot answers"
+                    onchange="this.form.submit()">
+              <option value="en" {% if request.session.language|default:'en' == 'en' %}selected{% endif %}>English</option>
+              <option value="es" {% if request.session.language == 'es' %}selected{% endif %}>Español</option>
+              <option value="zh" {% if request.session.language == 'zh' %}selected{% endif %}>中文</option>
+              <option value="fr" {% if request.session.language == 'fr' %}selected{% endif %}>Français</option>
+            </select>
+          </form>
           {% if user.is_authenticated %}
             <span class="nav-link disabled">Hi, {{ user.username }}</span>
             <a class="nav-link" href="{% url 'logoutaccount' %}">Logout</a>
